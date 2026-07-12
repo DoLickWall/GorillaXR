@@ -239,39 +239,94 @@ function addGazebo(b, cx, cz) {
   b.sphere(cx, 3.95, cz, 0.14, roofMat, { collide: false });
 }
 
-// Hollow spawn stump made from a ring of wall boxes with a doorway gap.
+// The spawn stump: a tall hollow tree in the Gorilla Tag spirit. Thick bark
+// walls, a conical roof, interior climbing ledges, warm light, and three
+// openings — the forest doorway plus two tunnel mouths that connect to the
+// caves and the city.
+export const STUMP_R = 3.4;
+export const STUMP_DOOR_ANGLE = Math.PI; // forest doorway faces -X
+export const CAVES_TUNNEL_ANGLE = Math.PI / 3;
+export const CITY_TUNNEL_ANGLE = (5 * Math.PI) / 3;
+
+function angDist(a, b) {
+  let d = Math.abs(a - b) % (Math.PI * 2);
+  return d > Math.PI ? Math.PI * 2 - d : d;
+}
+
 function addStump(b, cx, cz, { computer = true, inventory = true } = {}) {
   const barkMat = b.mat(0x7a5230, { roughness: 1, flat: true });
+  const barkMat2 = b.mat(0x6b4628, { roughness: 1, flat: true });
   const innerMat = b.mat(0xa9885b, { roughness: 1 });
-  const R = 3.2;
-  const wallH = 2.0;
-  const segs = 18;
-  const doorFrom = 8;
-  const doorTo = 10; // skip these segments for an entrance
-  for (let i = 0; i < segs; i++) {
-    if (i >= doorFrom && i <= doorTo) continue;
-    const a = (i / segs) * Math.PI * 2;
-    const px = cx + Math.cos(a) * R;
-    const pz = cz + Math.sin(a) * R;
-    const q = new THREE.Quaternion().setFromAxisAngle(_up, -a);
-    // segment thickness/width to form a ring
-    const segW = (Math.PI * 2 * R) / segs / 2 + 0.06;
-    b.box(px, wallH / 2, pz, 0.35, wallH / 2, segW, barkMat, { quat: q });
-  }
-  // rim cap (climbable top) — ring of small boxes
+  const R = STUMP_R;
+  const wallH = 5.2; // tall, like the real stump
+  const segs = 24;
+  const gaps = [STUMP_DOOR_ANGLE, CAVES_TUNNEL_ANGLE, CITY_TUNNEL_ANGLE];
+  const gapHalf = 0.30; // ~17° half-width opening
+
+  const segW = (Math.PI * 2 * R) / segs / 2 + 0.07;
   for (let i = 0; i < segs; i++) {
     const a = (i / segs) * Math.PI * 2;
     const px = cx + Math.cos(a) * R;
     const pz = cz + Math.sin(a) * R;
     const q = new THREE.Quaternion().setFromAxisAngle(_up, -a);
-    const segW = (Math.PI * 2 * R) / segs / 2 + 0.06;
-    b.box(px, wallH + 0.12, pz, 0.45, 0.12, segW, innerMat, { quat: q });
+    const inGap = gaps.some((g) => angDist(a, g) < gapHalf);
+    const mat = i % 2 ? barkMat : barkMat2;
+    if (inGap) {
+      // Opening: leave a 2.4m doorway, close the wall above it.
+      const lintelH = (wallH - 2.4) / 2;
+      b.box(px, 2.4 + lintelH, pz, 0.4, lintelH, segW, mat, { quat: q });
+    } else {
+      b.box(px, wallH / 2, pz, 0.4, wallH / 2, segW, mat, { quat: q });
+    }
   }
-  // roots outside
+
+  // Climbable rim ring at the top of the walls.
+  for (let i = 0; i < segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    const px = cx + Math.cos(a) * R;
+    const pz = cz + Math.sin(a) * R;
+    const q = new THREE.Quaternion().setFromAxisAngle(_up, -a);
+    b.box(px, wallH + 0.12, pz, 0.5, 0.12, segW, innerMat, { quat: q });
+  }
+
+  // Conical bark roof sitting on the rim (climbable from outside).
+  b.cone(cx, wallH + 0.24, cz, R + 1.0, 2.0, barkMat2, { collide: true });
+
+  // Interior: dirt floor disc, warm light, spiral climbing ledges.
+  const floorDisc = new THREE.Mesh(
+    new THREE.CircleGeometry(R - 0.15, 28),
+    b.mat(0x6e5334, { roughness: 1 })
+  );
+  floorDisc.rotation.x = -Math.PI / 2;
+  floorDisc.position.set(cx, 0.02, cz);
+  floorDisc.receiveShadow = true;
+  b.group.add(floorDisc);
+
+  const glow = new THREE.PointLight(0xffd9a0, 26, 15, 1.5);
+  glow.position.set(cx, 3.6, cz);
+  b.group.add(glow);
+
+  // Ledges spiral up the inside so you can climb to the rim, GT style.
+  const ledgeMat = b.mat(0x8a6a42, { roughness: 1 });
+  const ledges = [
+    [0.15, 1.3],
+    [1.0, 2.2],
+    [1.85, 3.1],
+    [2.7, 4.0],
+  ];
+  for (const [ang, h] of ledges) {
+    const px = cx + Math.cos(ang) * (R - 0.65);
+    const pz = cz + Math.sin(ang) * (R - 0.65);
+    const q = new THREE.Quaternion().setFromAxisAngle(_up, -ang);
+    b.box(px, h, pz, 0.55, 0.09, 0.4, ledgeMat, { quat: q });
+  }
+
+  // Roots outside for decoration/climbing.
   const rootMat = b.mat(0x5f4020, { roughness: 1, flat: true });
   for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + 0.3;
-    addRock(b, cx + Math.cos(a) * (R + 0.6), cz + Math.sin(a) * (R + 0.6), 0.5, rootMat);
+    const a = (i / 6) * Math.PI * 2 + 0.55;
+    if (gaps.some((g) => angDist(a, g) < 0.5)) continue; // keep openings clear
+    addRock(b, cx + Math.cos(a) * (R + 0.7), cz + Math.sin(a) * (R + 0.7), 0.5, rootMat);
   }
 
   if (computer) {
@@ -282,6 +337,149 @@ function addStump(b, cx, cz, { computer = true, inventory = true } = {}) {
     const it = b.addInteractable("inventory", cx + 1.5, 0, cz - 1.2, 1.6);
     buildInventoryStand(b, it, cx + 1.5, cz - 1.2, -Math.PI * 0.25);
   }
+}
+
+// --- Portals ----------------------------------------------------------------
+
+function makeTextPlane(b, text, color) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, 512, 128);
+  ctx.font = "bold 84px Segoe UI, Arial, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 22;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(text, 256, 66);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.9, 0.48),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
+  );
+  return mesh;
+}
+
+function makePortalPlane(b, color) {
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.9, 2.3),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+    })
+  );
+  return mesh;
+}
+
+/**
+ * A bark tunnel leading out of the stump ending in a glowing travel portal —
+ * the "connected maps" feel: you physically walk the tunnel and pop out on the
+ * other map.
+ */
+function addPortalTunnel(b, ox, oz, angle, label, dest, color) {
+  const barkMat = b.mat(0x6b4628, { roughness: 1, flat: true });
+  const dirx = Math.cos(angle);
+  const dirz = Math.sin(angle);
+  const perpx = -dirz;
+  const perpz = dirx;
+  const len = 4.6;
+  const start = STUMP_R - 0.2;
+  const cxx = ox + dirx * (start + len / 2);
+  const czz = oz + dirz * (start + len / 2);
+  const q = new THREE.Quaternion().setFromAxisAngle(_up, -angle);
+
+  // Side walls + ceiling form the corridor.
+  for (const s of [-1, 1]) {
+    b.box(
+      cxx + perpx * 1.25 * s,
+      1.3,
+      czz + perpz * 1.25 * s,
+      len / 2 + 0.4,
+      1.3,
+      0.25,
+      barkMat,
+      { quat: q }
+    );
+  }
+  b.box(cxx, 2.75, czz, len / 2 + 0.4, 0.15, 1.5, barkMat, { quat: q });
+
+  // Dirt floor strip (visual only; the ground collider is already there).
+  const strip = new THREE.Mesh(
+    new THREE.PlaneGeometry(len + 0.8, 2.3),
+    b.mat(0x6e5334, { roughness: 1 })
+  );
+  strip.rotation.x = -Math.PI / 2;
+  strip.rotation.z = -angle;
+  strip.position.set(cxx, 0.025, czz);
+  b.group.add(strip);
+
+  // Soft light so the corridor interior isn't pitch black.
+  const lamp = new THREE.PointLight(0xffd9a0, 8, 8, 1.6);
+  lamp.position.set(cxx, 2.0, czz);
+  b.group.add(lamp);
+
+  // Portal at the far end, facing back down the tunnel.
+  const px = ox + dirx * (start + len - 0.35);
+  const pz = oz + dirz * (start + len - 0.35);
+  const portalGroup = new THREE.Group();
+  portalGroup.position.set(px, 0, pz);
+  portalGroup.lookAt(ox, 0, oz);
+  b.group.add(portalGroup);
+
+  const plane = makePortalPlane(b, color);
+  plane.scale.set(1, 0.87, 1); // fit under the tunnel ceiling
+  plane.position.y = 1.1;
+  portalGroup.add(plane);
+  const sign = makeTextPlane(b, label, "#88e0ff");
+  sign.scale.set(0.8, 0.8, 1);
+  sign.position.y = 2.3;
+  portalGroup.add(sign);
+
+  // Back wall behind the portal so the tunnel reads as closed.
+  b.box(
+    ox + dirx * (start + len + 0.05),
+    1.5,
+    oz + dirz * (start + len + 0.05),
+    0.15,
+    1.5,
+    1.5,
+    barkMat,
+    { quat: q }
+  );
+
+  b.addInteractable("portal", px, 1.2, pz, 1.05, { dest, label });
+}
+
+/** Freestanding portal arch used in the caves/city to travel back. */
+function addPortalArch(b, x, z, faceAngle, label, dest, color, postMat) {
+  const q = new THREE.Quaternion().setFromAxisAngle(_up, faceAngle);
+  const dx = Math.cos(faceAngle);
+  const dz = -Math.sin(faceAngle); // plane +X after yaw
+  // Posts + lintel.
+  for (const s of [-1, 1]) {
+    b.cylinder(x + dx * 1.15 * s, 0, z + dz * 1.15 * s, 0.16, 0.2, 2.6, postMat, {
+      colR: 0.2,
+    });
+  }
+  b.box(x, 2.72, z, 1.5, 0.14, 0.3, postMat, { quat: q });
+
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = faceAngle;
+  b.group.add(group);
+  const plane = makePortalPlane(b, color);
+  plane.position.y = 1.25;
+  group.add(plane);
+  const sign = makeTextPlane(b, label, "#88e0ff");
+  sign.position.y = 2.42;
+  group.add(sign);
+
+  b.addInteractable("portal", x, 1.2, z, 1.0, { dest, label });
 }
 
 // A retro computer terminal like the one in the spawn stump.
@@ -362,28 +560,31 @@ function buildForest(scene, world) {
   const groundMat = b.mat(0x4f8f3a, { roughness: 1 });
   b.ground(0, groundMat);
 
-  // Spawn stump at origin with computer + inventory inside.
+  // Spawn stump at origin with computer + inventory inside, plus the two
+  // tunnels that connect it to the caves and the city (like the real thing).
   addStump(b, 0, 0, { computer: true, inventory: true });
+  addPortalTunnel(b, 0, 0, CAVES_TUNNEL_ANGLE, "CAVES", "caves", 0x4fd9ff);
+  addPortalTunnel(b, 0, 0, CITY_TUNNEL_ANGLE, "CITY", "city", 0xffb84a);
 
-  // Ring of trees + rocks + grass around the clearing.
+  // Ring of trees + rocks + grass around the clearing (kept clear of tunnels).
   const rand = mulberry32(1234);
   for (let i = 0; i < 26; i++) {
     const a = rand() * Math.PI * 2;
-    const d = 8 + rand() * 42;
+    const d = 10 + rand() * 40;
     const x = Math.cos(a) * d;
     const z = Math.sin(a) * d;
-    if (Math.hypot(x, z) < 6) continue;
+    if (Math.hypot(x, z) < 9) continue;
     addTree(b, x, z, 0.8 + rand() * 0.9);
   }
   const rockMat = b.mat(0x8a8f95, { roughness: 1, flat: true });
   for (let i = 0; i < 18; i++) {
     const a = rand() * Math.PI * 2;
-    const d = 6 + rand() * 40;
+    const d = 9.5 + rand() * 36;
     addRock(b, Math.cos(a) * d, Math.sin(a) * d, 0.4 + rand() * 1.2, rockMat);
   }
   for (let i = 0; i < 14; i++) {
     const a = rand() * Math.PI * 2;
-    const d = 5 + rand() * 30;
+    const d = 9 + rand() * 28;
     addGrassPatch(b, Math.cos(a) * d, Math.sin(a) * d, 40, 2.2);
   }
 
@@ -397,7 +598,8 @@ function buildForest(scene, world) {
   addRock(b, -8.5, 10, 1.8, rockMat);
 
   // Set dressing: flowers everywhere, mushrooms by the stump, drifting clouds.
-  addFlowers(b, 40, rand);
+  // (Flowers start beyond the tunnels so nothing sprouts inside a corridor.)
+  addFlowers(b, 40, rand, 8.5, 30);
   addMushrooms(b, [
     [4.2, 1.5, 1],
     [4.8, 0.6, 0.7],
@@ -428,10 +630,11 @@ function buildCaves(scene, world) {
   b.ground(0, floorMat);
 
   const rockMat = b.mat(0x3b3630, { roughness: 1, flat: true });
-  const crystalMat = b.mat(0x4fd9ff, {
-    roughness: 0.2,
+  const crystalMat = b.mat(0x7fe7ff, {
+    roughness: 0.15,
+    flat: true,
     emissive: 0x2f9cc4,
-    emissiveIntensity: 2.2,
+    emissiveIntensity: 1.8,
   });
 
   // Surrounding cave wall from big overlapping rock spheres.
@@ -453,14 +656,9 @@ function buildCaves(scene, world) {
     const d = rand() * 16;
     const x = Math.cos(a) * d;
     const z = Math.sin(a) * d;
-    if (Math.hypot(x, z) < 3) continue;
+    if (Math.hypot(x, z) < 4.5) continue;
     const h = 2 + rand() * 4;
     b.cone(x, 0, z, 0.8 + rand(), h, rockMat);
-    if (rand() > 0.6) {
-      const cy = h * 0.7;
-      const c = b.sphere(x, cy, z, 0.35, crystalMat, { collide: false });
-      c.scale.set(0.6, 1.6, 0.6);
-    }
   }
   // Hanging stalactites (visual + collider from ceiling).
   for (let i = 0; i < 10; i++) {
@@ -479,23 +677,35 @@ function buildCaves(scene, world) {
     b.group.add(cone);
   }
 
-  // Glowing crystal clusters as landmarks.
-  for (let i = 0; i < 6; i++) {
+  // Glowing crystal clusters as landmarks: faceted hexagonal shards leaning
+  // out of the ground at natural angles, one tall centre spike per cluster.
+  const addCrystalCluster = (x, z, scale = 1) => {
+    const shards = 4 + Math.floor(rand() * 3);
+    for (let k = 0; k < shards; k++) {
+      const isCentre = k === 0;
+      const h = (isCentre ? 1.1 + rand() * 0.5 : 0.45 + rand() * 0.5) * scale;
+      const r = (isCentre ? 0.16 : 0.09 + rand() * 0.06) * scale;
+      const shard = new THREE.Mesh(
+        new THREE.CylinderGeometry(r * 0.15, r, h, 6, 1),
+        crystalMat
+      );
+      const a = rand() * Math.PI * 2;
+      const off = isCentre ? 0 : 0.18 + rand() * 0.3;
+      shard.position.set(x + Math.cos(a) * off, h * 0.42, z + Math.sin(a) * off);
+      if (!isCentre) {
+        shard.rotation.x = (rand() - 0.5) * 0.7;
+        shard.rotation.z = (rand() - 0.5) * 0.7;
+      } else {
+        shard.rotation.y = rand() * Math.PI;
+      }
+      shard.castShadow = true;
+      b.group.add(shard);
+    }
+  };
+  for (let i = 0; i < 8; i++) {
     const a = rand() * Math.PI * 2;
     const d = 6 + rand() * 12;
-    const x = Math.cos(a) * d;
-    const z = Math.sin(a) * d;
-    for (let k = 0; k < 4; k++) {
-      const c = b.sphere(
-        x + (rand() - 0.5),
-        0.4 + rand(),
-        z + (rand() - 0.5),
-        0.25 + rand() * 0.3,
-        crystalMat,
-        { collide: false }
-      );
-      c.scale.set(0.5, 1.8, 0.5);
-    }
+    addCrystalCluster(Math.cos(a) * d, Math.sin(a) * d, 0.8 + rand() * 0.8);
   }
 
   // Mood lighting: a cool wash from above and warm pockets to explore toward.
@@ -512,6 +722,14 @@ function buildCaves(scene, world) {
   // Terminal near the spawn so you can always travel out / tweak settings.
   const term = b.addInteractable("computer", 2.4, 0, 2.4, 1.6);
   buildComputerBody(b, term, 2.4, 2.4, -Math.PI * 0.75);
+
+  // Inventory stand so you can swap cosmetics without leaving the caves.
+  const inv = b.addInteractable("inventory", -2.6, 0, 3.0, 1.6);
+  buildInventoryStand(b, inv, -2.6, 3.0, -Math.PI * 0.3);
+
+  // Return portals: rock arches leading back to the stump / over to the city.
+  addPortalArch(b, -5.5, -1.8, Math.PI / 2, "FOREST", "forest", 0x7dd66d, rockMat);
+  addPortalArch(b, -5.5, 1.8, Math.PI / 2, "CITY", "city", 0xffb84a, rockMat);
 
   return {
     group: b.group,
@@ -607,6 +825,11 @@ function buildCity(scene, world) {
   // City terminal so you can travel / change settings without going home.
   const term = b.addInteractable("computer", -7, 0, -3, 1.6);
   buildComputerBody(b, term, -7, -3, Math.PI * 0.35);
+
+  // Return portals on the plaza edge (back to the stump / down to the caves).
+  const archMat = b.mat(0x4a4f57, { roughness: 0.8 });
+  addPortalArch(b, -10, -8, Math.PI / 4, "FOREST", "forest", 0x7dd66d, archMat);
+  addPortalArch(b, -12.5, -5.5, Math.PI / 4, "CAVES", "caves", 0x4fd9ff, archMat);
 
   // Some benches / crates as decoration + play props.
   const crateMat = b.mat(0x9c7a4a, { roughness: 0.9, flat: true });

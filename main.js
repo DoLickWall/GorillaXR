@@ -215,6 +215,13 @@ class Game {
       "You are " + this.inventory.name + " — change it at the stump computer"
     );
 
+    // Desktop mode: capture the mouse right away (this runs inside the button
+    // click gesture, so the browser allows it) and show a crosshair.
+    if (!this.renderer.xr.isPresenting) {
+      document.getElementById("crosshair").hidden = false;
+      this.renderer.domElement.requestPointerLock?.();
+    }
+
     this.renderer.setAnimationLoop((t, frame) => this._loop(t, frame));
   }
 
@@ -322,6 +329,9 @@ class Game {
     const result = buildMap(name, this.scene, this.world);
     this._mapGroup = result.group;
     this.spawn = result.spawn;
+    // Walk-through travel portals (tunnel ends in the stump, arches elsewhere).
+    this.portals = result.interactables.filter((it) => it.type === "portal");
+    this._portalCooldownUntil = performance.now() + 2000;
     this.hemi.color.setHex(result.ambient);
     this.hemi.groundColor.setHex(result.dark ? 0x1a2026 : 0x35502f);
     this.hemi.intensity = result.dark ? 0.85 : 0.95;
@@ -410,6 +420,7 @@ class Game {
     }
 
     this.loco.update(dt);
+    this._updatePortals();
     this._updateLocalAvatar();
     this.remotePlayers.update(this.currentMap);
     this.gameModes.update(this.rig);
@@ -518,6 +529,24 @@ class Game {
       try {
         act.pulse(0.4, 40);
       } catch {}
+    }
+  }
+
+  /** Walking into a glowing portal travels to its destination map. */
+  _updatePortals() {
+    if (!this.portals || this.portals.length === 0) return;
+    const now = performance.now();
+    if (now < this._portalCooldownUntil) return;
+    const rx = this.rig.position.x;
+    const rz = this.rig.position.z;
+    for (const p of this.portals) {
+      const dx = rx - p.position.x;
+      const dz = rz - p.position.z;
+      if (dx * dx + dz * dz < p.radius * p.radius) {
+        this.sfx.buy();
+        this._travel(p.dest);
+        return; // _loadMap replaced this.portals; stop iterating
+      }
     }
   }
 
