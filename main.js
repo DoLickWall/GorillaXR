@@ -167,8 +167,7 @@ class Game {
   _setupMenu() {
     this.menu = document.getElementById("menu");
     this.status = document.getElementById("status");
-    document.getElementById("nameInput").value = this.inventory.name;
-    document.getElementById("modCheck").checked = this.inventory.isMod;
+    this.status.textContent = "You are " + this.inventory.name;
 
     document.getElementById("descBtn").addEventListener("click", () => {
       const el = document.getElementById("howto");
@@ -188,39 +187,85 @@ class Game {
     enterButtons.appendChild(deskBtn);
   }
 
-  _readMenu() {
-    const name = (document.getElementById("nameInput").value || "Gorilla").slice(0, 16);
-    const map = document.getElementById("mapSelect").value;
-    const mode = document.getElementById("modeSelect").value;
-    const room = (document.getElementById("roomInput").value || "public").slice(0, 24);
-    const isMod = document.getElementById("modCheck").checked;
-    return { name, map, mode, room, isMod };
-  }
-
   _begin() {
     if (this.started) return;
     this.started = true;
-    const opts = this._readMenu();
 
-    this.inventory.setName(opts.name);
-    this.inventory.setMod(opts.isMod);
-    this.localAvatar.setName(opts.name);
+    // No lobby form: jump straight in. Everything (name/colour/room/map/mode)
+    // is changed in-world at the computer, like the real thing.
+    this.currentMap = "forest";
+    this.currentRoom = "public";
+    this._checkWally(this.inventory.name, { quiet: true });
+
+    this.localAvatar.setName(this.inventory.name);
     this.localAvatar.setColor(this.inventory.color);
     this.localAvatar.setCosmetics(this.inventory.equippedList());
 
-    this._loadMap(opts.map);
-    this.gameModes.setMode(opts.mode);
-    this._desiredMode = opts.mode;
+    this._loadMap(this.currentMap);
+    this.gameModes.setMode("casual");
 
     // Networking (degrades to solo on failure).
-    this.network.connect(opts.room, opts.name);
+    this.network.connect(this.currentRoom, this.inventory.name);
     this.sfx.unlock();
 
     this.menu.parentElement.style.display = "none";
     this.hud.show();
     this.gameModes._refreshBadge();
+    this.hud.showToast(
+      "You are " + this.inventory.name + " — change it at the stump computer"
+    );
 
     this.renderer.setAnimationLoop((t, frame) => this._loop(t, frame));
+  }
+
+  /** Naming yourself "wally" grants moderator (and with it, The Stick). */
+  _checkWally(name, { quiet = false } = {}) {
+    const isWally = name.trim().toLowerCase() === "wally";
+    if (isWally === this.inventory.isMod) return;
+    this.inventory.setMod(isWally);
+    this.localAvatar.setCosmetics(this.inventory.equippedList());
+    if (quiet) return;
+    if (isWally) {
+      this.hud.showToast("👋 Welcome, moderator. The Stick is in your inventory.");
+      this.sfx.buy();
+    } else {
+      this.hud.showToast("Moderator powers left with wally.");
+    }
+  }
+
+  _joinRoom(code) {
+    if (code === this.currentRoom) {
+      this.hud.showToast("Already in room \"" + code + "\"");
+      return;
+    }
+    this.currentRoom = code;
+    this.network.disconnect();
+    this.remotePlayers.clear();
+    this.gameModes.setLocalId(null);
+    this.gameModes.applyInfected([], this.gameModes.mode);
+    this.network.connect(code, this.inventory.name);
+    this.hud.showToast("Joining room \"" + code + "\"…");
+  }
+
+  _travel(map) {
+    if (map === this.currentMap) {
+      this.hud.showToast("You're already there!");
+      return;
+    }
+    this.currentMap = map;
+    this._loadMap(map);
+    this.hud.showToast(
+      map === "forest" ? "Back to the forest" : "Traveled to the " + map
+    );
+  }
+
+  _setMode(mode) {
+    if (this.network.connected) {
+      this.network.setMode(mode); // server confirms + broadcasts to the room
+    } else {
+      this.gameModes.setMode(mode);
+      this.hud.showToast(mode === "infection" ? "Infection (solo — no one to tag)" : "Casual mode");
+    }
   }
 
   _ctx() {
@@ -231,6 +276,7 @@ class Game {
         this.inventory.setName(name);
         this.localAvatar.setName(name);
         this.network.sendRename(name);
+        this._checkWally(name);
       },
       applyColor: (hex) => {
         this.inventory.setColor(hex);
@@ -243,6 +289,12 @@ class Game {
       respawn: () => this.loco.spawnAt(this.spawn.x, 0, this.spawn.z),
       toast: (msg) => this.hud.showToast(msg),
       onSettingChange: () => this._applySettings(),
+      currentRoom: () => this.currentRoom,
+      joinRoom: (code) => this._joinRoom(code),
+      currentMap: () => this.currentMap,
+      travel: (map) => this._travel(map),
+      currentMode: () => this.gameModes.mode,
+      setMode: (mode) => this._setMode(mode),
     };
   }
 
@@ -271,10 +323,10 @@ class Game {
     this._mapGroup = result.group;
     this.spawn = result.spawn;
     this.hemi.color.setHex(result.ambient);
-    this.hemi.groundColor.setHex(result.dark ? 0x101418 : 0x35502f);
-    this.hemi.intensity = result.dark ? 0.5 : 0.95;
+    this.hemi.groundColor.setHex(result.dark ? 0x1a2026 : 0x35502f);
+    this.hemi.intensity = result.dark ? 0.85 : 0.95;
     this.sun.color.setHex(result.sun);
-    this.sun.intensity = result.dark ? 0.5 : 1.5;
+    this.sun.intensity = result.dark ? 0.7 : 1.5;
 
     // Spawn inside the map (inside the stump on forest).
     this.loco.spawnAt(this.spawn.x, 0, this.spawn.z);
@@ -309,11 +361,12 @@ class Game {
       this.gameModes.setLocalId(msg.id);
       this.gameModes.applyInfected(msg.infected, msg.mode);
       for (const p of msg.players || []) this.remotePlayers.ensure(p.id, p.name);
-      this.hud.showToast("Connected — room ready");
-      // If the host requested infection, ask the room to switch.
-      if (this._desiredMode === "infection" && msg.mode !== "infection") {
-        n.setMode("infection");
-      }
+      const count = (msg.players || []).length;
+      this.hud.showToast(
+        count > 0
+          ? "Connected — " + count + " other" + (count === 1 ? "" : "s") + " here"
+          : "Connected — room \"" + this.currentRoom + "\""
+      );
       this._applySettings();
     });
     n.on("join", (msg) => this.remotePlayers.onJoin(msg));
@@ -358,7 +411,7 @@ class Game {
 
     this.loco.update(dt);
     this._updateLocalAvatar();
-    this.remotePlayers.update();
+    this.remotePlayers.update(this.currentMap);
     this.gameModes.update(this.rig);
     this._updatePointer();
     this._updateComfort();
@@ -505,6 +558,7 @@ class Game {
       c: this.inventory.color,
       n: this.inventory.name,
       cos: this.inventory.equippedList(),
+      m: this.currentMap,
       inf: this.gameModes.localInfected ? 1 : 0,
     });
   }
@@ -569,5 +623,5 @@ function disposeGroup(group) {
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 
-// Boot.
-new Game();
+// Boot. The instance is exposed for debugging/automation only.
+window.__game = new Game();

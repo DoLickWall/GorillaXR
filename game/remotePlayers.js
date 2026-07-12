@@ -12,12 +12,15 @@ const BUFFER_MAX = 20;
 class RemotePlayer {
   constructor(scene, name, color) {
     this.avatar = new Avatar({ name, color, local: false });
+    // Hidden until the first state packet arrives so nobody pops in at origin.
+    this.avatar.root.visible = false;
     scene.add(this.avatar.root);
     this.snapshots = []; // {t, rig, head:{pos,quat}, left:{...}, right:{...}}
     this.name = name;
     this.color = color;
     this.cosmetics = [];
     this.infected = false;
+    this.map = null; // which map they're on (null until first state)
   }
 
   pushState(msg) {
@@ -44,6 +47,7 @@ class RemotePlayer {
       this.cosmetics = msg.cos.slice();
       this.avatar.setCosmetics(this.cosmetics);
     }
+    if (typeof msg.m === "string") this.map = msg.m;
   }
 
   setInfected(v) {
@@ -141,17 +145,24 @@ export class RemotePlayers {
     this.players.clear();
   }
 
-  update() {
+  update(localMap) {
     const renderTime = performance.now() - CONFIG.interpDelayMs;
-    for (const [, p] of this.players) p.render(renderTime);
+    for (const [, p] of this.players) {
+      // Only show players who are on the same map (and have sent a state).
+      const visible = p.snapshots.length > 0 && (!p.map || p.map === localMap);
+      p.avatar.root.visible = visible;
+      if (visible) p.render(renderTime);
+    }
   }
 
   /** Nearest remote player to a world point, for infection tag detection.
-   *  Measures to the torso centre (not the feet) so a hand touch registers. */
+   *  Measures to the torso centre (not the feet) so a hand touch registers.
+   *  Skips players on another map (hidden avatars). */
   nearest(point, maxDist) {
     let best = null;
     let bestD = maxDist;
     for (const [id, p] of this.players) {
+      if (!p.avatar.root.visible) continue;
       p.avatar.body.getWorldPosition(_bodyCentre);
       const d = _bodyCentre.distanceTo(point);
       if (d < bestD) {

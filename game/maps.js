@@ -140,6 +140,84 @@ function addGrassPatch(b, cx, cz, count, radius) {
   b.group.add(inst);
 }
 
+function addFlowers(b, count, rand, rMin = 4, rMax = 30) {
+  const stemMat = b.mat(0x3f7a2e, { roughness: 1 });
+  const petals = [0xff6fae, 0xffd24a, 0xff8c42, 0xc17ce8, 0xffffff];
+  for (let i = 0; i < count; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = rMin + rand() * (rMax - rMin);
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    const h = 0.18 + rand() * 0.15;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.01, h, 5), stemMat);
+    stem.position.set(x, h / 2, z);
+    b.group.add(stem);
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.035 + rand() * 0.02, 8, 6),
+      b.mat(petals[Math.floor(rand() * petals.length)], { roughness: 0.7 })
+    );
+    head.position.set(x, h + 0.02, z);
+    head.scale.y = 0.7;
+    b.group.add(head);
+  }
+}
+
+function addMushrooms(b, positions) {
+  const stemMat = b.mat(0xe8e0d0, { roughness: 0.9 });
+  const capMat = b.mat(0xc94436, { roughness: 0.7 });
+  const dotMat = b.mat(0xffffff, { roughness: 0.7 });
+  for (const [x, z, s] of positions) {
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05 * s, 0.07 * s, 0.22 * s, 8), stemMat);
+    stem.position.set(x, 0.11 * s, z);
+    stem.castShadow = true;
+    b.group.add(stem);
+    const cap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14 * s, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+      capMat
+    );
+    cap.position.set(x, 0.2 * s, z);
+    cap.castShadow = true;
+    b.group.add(cap);
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.5;
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.02 * s, 6, 6), dotMat);
+      dot.position.set(x + Math.cos(a) * 0.08 * s, 0.27 * s, z + Math.sin(a) * 0.08 * s);
+      b.group.add(dot);
+    }
+  }
+}
+
+function addClouds(b, rand) {
+  const cloudMat = b.mat(0xffffff, { roughness: 1, transparent: true, opacity: 0.92 });
+  for (let i = 0; i < 6; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = 20 + rand() * 45;
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    const y = 24 + rand() * 12;
+    for (let k = 0; k < 3; k++) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(2.2 + rand() * 1.8, 10, 8), cloudMat);
+      puff.position.set(x + (rand() - 0.5) * 5, y + (rand() - 0.5) * 1.2, z + (rand() - 0.5) * 4);
+      puff.scale.y = 0.5;
+      b.group.add(puff);
+    }
+  }
+}
+
+function addDirtPath(b, from, to, steps = 7) {
+  const dirtMat = b.mat(0x8a6a42, { roughness: 1 });
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = from[0] + (to[0] - from[0]) * t + Math.sin(i * 2.1) * 0.5;
+    const z = from[1] + (to[1] - from[1]) * t + Math.cos(i * 1.7) * 0.5;
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.8 + (i % 2) * 0.25, 12), dirtMat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(x, 0.012 + i * 0.0004, z);
+    disc.receiveShadow = true;
+    b.group.add(disc);
+  }
+}
+
 function addGazebo(b, cx, cz) {
   const postMat = b.mat(0xcaa46a, { roughness: 0.8 });
   const roofMat = b.mat(0x8a4b2a, { roughness: 0.8, flat: true });
@@ -309,13 +387,25 @@ function buildForest(scene, world) {
     addGrassPatch(b, Math.cos(a) * d, Math.sin(a) * d, 40, 2.2);
   }
 
-  // Gazebo decoration off to one side.
-  addGazebo(b, 12, -6);
+  // Gazebo on the doorway side of the stump (door faces -X), linked by a path.
+  addGazebo(b, -11, -3);
+  addDirtPath(b, [-4, 0], [-9, -2.5]);
 
   // A couple of big climbable boulders as a play structure.
-  addRock(b, -10, 4, 2.2, rockMat);
-  addRock(b, -12.5, 3, 1.6, rockMat);
-  addRock(b, -8.5, 6, 1.8, rockMat);
+  addRock(b, -10, 8, 2.2, rockMat);
+  addRock(b, -12.5, 7, 1.6, rockMat);
+  addRock(b, -8.5, 10, 1.8, rockMat);
+
+  // Set dressing: flowers everywhere, mushrooms by the stump, drifting clouds.
+  addFlowers(b, 40, rand);
+  addMushrooms(b, [
+    [4.2, 1.5, 1],
+    [4.8, 0.6, 0.7],
+    [-2.5, 4.6, 1.2],
+    [1.8, -4.4, 0.8],
+    [-4.6, -1.8, 1],
+  ]);
+  addClouds(b, rand);
 
   return {
     group: b.group,
@@ -340,8 +430,8 @@ function buildCaves(scene, world) {
   const rockMat = b.mat(0x3b3630, { roughness: 1, flat: true });
   const crystalMat = b.mat(0x4fd9ff, {
     roughness: 0.2,
-    emissive: 0x1a6c88,
-    emissiveIntensity: 1.4,
+    emissive: 0x2f9cc4,
+    emissiveIntensity: 2.2,
   });
 
   // Surrounding cave wall from big overlapping rock spheres.
@@ -407,6 +497,21 @@ function buildCaves(scene, world) {
       c.scale.set(0.5, 1.8, 0.5);
     }
   }
+
+  // Mood lighting: a cool wash from above and warm pockets to explore toward.
+  const caveLight = new THREE.PointLight(0x77c4ff, 90, 70, 1.4);
+  caveLight.position.set(0, 9, 0);
+  b.group.add(caveLight);
+  const warmLight = new THREE.PointLight(0xffaa55, 50, 40, 1.4);
+  warmLight.position.set(9, 3, -7);
+  b.group.add(warmLight);
+  const warmLight2 = new THREE.PointLight(0xff9966, 40, 36, 1.4);
+  warmLight2.position.set(-10, 4, 6);
+  b.group.add(warmLight2);
+
+  // Terminal near the spawn so you can always travel out / tweak settings.
+  const term = b.addInteractable("computer", 2.4, 0, 2.4, 1.6);
+  buildComputerBody(b, term, 2.4, 2.4, -Math.PI * 0.75);
 
   return {
     group: b.group,
@@ -499,6 +604,10 @@ function buildCity(scene, world) {
   buildShopKiosk(b, 6, 6, Math.PI, "Hat Shack");
   buildShopKiosk(b, 8, -4, Math.PI * 0.75, "Trinket Cart");
 
+  // City terminal so you can travel / change settings without going home.
+  const term = b.addInteractable("computer", -7, 0, -3, 1.6);
+  buildComputerBody(b, term, -7, -3, Math.PI * 0.35);
+
   // Some benches / crates as decoration + play props.
   const crateMat = b.mat(0x9c7a4a, { roughness: 0.9, flat: true });
   for (let i = 0; i < 6; i++) {
@@ -507,6 +616,27 @@ function buildCity(scene, world) {
     const s = 0.4 + rand() * 0.3;
     b.box(x, s, z, s, s, s, crateMat);
   }
+
+  // Crosswalk stripes on the ring road + planter trees around the plaza.
+  const stripeMat = b.mat(0xe8e8e8, { roughness: 0.8 });
+  for (let i = 0; i < 6; i++) {
+    for (const [sx, sz, rot] of [
+      [16, -3 + i, 0],
+      [-16, -3 + i, 0],
+      [-3 + i, 16, Math.PI / 2],
+      [-3 + i, -16, Math.PI / 2],
+    ]) {
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.45), stripeMat);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.rotation.z = rot;
+      stripe.position.set(sx, 0.015, sz);
+      b.group.add(stripe);
+    }
+  }
+  addTree(b, 13, 13, 0.9);
+  addTree(b, -13, 13, 1.0);
+  addTree(b, 13, -13, 0.85);
+  addTree(b, -13, -13, 0.95);
 
   return {
     group: b.group,

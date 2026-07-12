@@ -11,10 +11,16 @@ export class Inventory {
     this.coins = CONFIG.startingCoins;
     this.owned = new Set();
     this.equipped = new Set();
-    this.name = "Gorilla";
+    this.name = null;
     this.color = CONFIG.defaultColor;
     this.isMod = false;
     this.load();
+    if (!this.name) {
+      // First visit: hand out a random default like Gorilla4821. Players change
+      // it later on the in-world computer.
+      this.name = "Gorilla" + (1 + Math.floor(Math.random() * 9999));
+      this.save();
+    }
   }
 
   load() {

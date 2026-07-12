@@ -28,6 +28,8 @@ export class Locomotion {
 
     this._headWorld = new THREE.Vector3();
     this._enabled = true;
+    this._airborne = true;
+    this._velHistory = [];
   }
 
   setEnabled(v) {
@@ -42,6 +44,8 @@ export class Locomotion {
     this.velocity.set(0, 0, 0);
     this._hand.left.gripping = false;
     this._hand.right.gripping = false;
+    this._airborne = true;
+    this._velHistory.length = 0;
   }
 
   update(dt) {
@@ -54,16 +58,12 @@ export class Locomotion {
   // --- VR: hand-driven climbing ------------------------------------------
   _updateVR(dt) {
     const g = CONFIG.gravity * CONFIG.gravityMultiplier;
-    // 1. Gravity + tentative integration of existing momentum.
-    this.velocity.y -= g * dt;
-    this.rig.position.addScaledVector(this.velocity, dt);
-
-    const startPos = _v1.copy(this.rig.position);
 
     // Head world position (for arm-length limiting + body collision).
     this.rig.localToWorld(this._headWorld.copy(this.input.head.pos));
 
-    let grippingCount = 0;
+    let touching = 0; // hands in contact with the world this frame
+    let pulling = 0; // hands that were already anchored and are dragging us
     const bodyDelta = _v2.set(0, 0, 0);
 
     for (const side of ["left", "right"]) {
@@ -79,14 +79,13 @@ export class Locomotion {
       this.rig.localToWorld(hw);
 
       // Exactly like Gorilla Tag: hands are always "sticky" against the world —
-      // no grip button required. A hand pushes whenever it is touching a surface
+      // no grip button required. A hand anchors whenever it touches a surface
       // within arm's reach. (Trigger/grip drive the finger animation only.)
       const armLen = hw.distanceTo(this._headWorld);
       const contact = this.world.contact(hw.x, hw.y, hw.z, CONFIG.handRadius);
 
-      const wantsGrip = !!contact && armLen < CONFIG.maxHandDistance + 0.35;
-
-      if (wantsGrip) {
+      if (contact && armLen < CONFIG.maxHandDistance + 0.35) {
+        touching++;
         // Corrected hand position: pushed out of the surface it rests on.
         const corr = _v4.copy(hw);
         corr.x += contact.nx * contact.depth;
@@ -94,41 +93,80 @@ export class Locomotion {
         corr.z += contact.nz * contact.depth;
 
         if (!st.gripping) {
-          // First contact: anchor here, no pull yet.
+          // First contact: plant the hand. Planting is a hard brake, exactly
+          // like slapping a palm onto a surface in GT.
           st.anchor.copy(corr);
           st.gripping = true;
         } else {
           // Move body so the corrected hand returns toward its anchor.
           _v5.copy(st.anchor).sub(corr); // desired body movement
           bodyDelta.add(_v5);
-          grippingCount++;
+          pulling++;
         }
       } else {
         st.gripping = false;
       }
     }
 
-    if (grippingCount > 0) {
-      // Average the pull from all gripping hands (both anchored => body moves by
-      // the shared shortening, not the sum).
-      bodyDelta.multiplyScalar(1 / grippingCount);
-      this.rig.position.add(bodyDelta);
+    if (touching > 0) {
+      // Anchored: gravity is irrelevant, the hands own the body.
+      if (pulling > 0) {
+        // Average the pull from all anchored hands (both anchored => body moves
+        // by the shared shortening, not the sum).
+        bodyDelta.multiplyScalar(1 / pulling);
+        this.rig.position.add(bodyDelta);
 
-      // Velocity = how fast we pulled, with a little extra pop for big swings.
-      this.velocity.copy(bodyDelta).multiplyScalar((1 / dt) * CONFIG.jumpMultiplier);
-      const spd = this.velocity.length();
-      if (spd > CONFIG.velocityLimit) {
-        this.velocity.multiplyScalar(CONFIG.velocityLimit / spd);
+        // Track how fast the hands are throwing us; the smoothed value becomes
+        // launch velocity the moment every hand lets go.
+        _v1.copy(bodyDelta).divideScalar(Math.max(dt, 1e-4));
+        this._pushVelSample(_v1);
+
+        // Anchors ride along so a held hand keeps its world grip.
+        this._hand.left.anchor.add(bodyDelta);
+        this._hand.right.anchor.add(bodyDelta);
+      } else {
+        // Freshly planted, not moving yet: dead stop.
+        this._pushVelSample(_v1.set(0, 0, 0));
       }
-
-      // Anchors move with the body so a held hand keeps its world grip.
-      this._hand.left.anchor.add(bodyDelta);
-      this._hand.right.anchor.add(bodyDelta);
+      // While any hand is planted the body itself is parked; momentum only
+      // exists as the hand-motion history.
+      this.velocity.set(0, 0, 0);
+      this._airborne = false;
+    } else {
+      if (!this._airborne) {
+        // Just released: hand momentum (averaged over the last few frames)
+        // becomes body velocity, with a bit of extra pop.
+        this._avgVel(this.velocity).multiplyScalar(CONFIG.jumpMultiplier);
+        const spd = this.velocity.length();
+        if (spd > CONFIG.velocityLimit) {
+          this.velocity.multiplyScalar(CONFIG.velocityLimit / spd);
+        }
+        this._airborne = true;
+        this._velHistory.length = 0;
+      }
+      this.velocity.y -= g * dt;
+      this.rig.position.addScaledVector(this.velocity, dt);
     }
 
     this._resolveBody(dt);
-    // record for reference (unused by callers but handy for debugging)
-    void startPos;
+  }
+
+  _pushVelSample(v) {
+    if (!this._velHistory) this._velHistory = [];
+    this._velHistory.push([v.x, v.y, v.z]);
+    if (this._velHistory.length > 5) this._velHistory.shift();
+  }
+
+  _avgVel(out) {
+    out.set(0, 0, 0);
+    const h = this._velHistory || [];
+    if (h.length === 0) return out;
+    for (const s of h) {
+      out.x += s[0];
+      out.y += s[1];
+      out.z += s[2];
+    }
+    return out.divideScalar(h.length);
   }
 
   // --- Desktop test locomotion (WASD) ------------------------------------

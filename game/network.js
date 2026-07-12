@@ -28,6 +28,7 @@ export class Network {
 
   connect(room, name) {
     this.room = room;
+    this._manualClose = false;
     const proto = location.protocol === "https:" ? "wss" : "ws";
     // Same-origin: works both on Cloudflare and `wrangler dev`.
     const url = `${proto}://${location.host}/ws?room=${encodeURIComponent(
@@ -57,11 +58,11 @@ export class Network {
     });
     ws.addEventListener("close", () => {
       this.connected = false;
-      this._emit("close", {});
+      if (!this._manualClose) this._emit("close", {});
     });
     ws.addEventListener("error", () => {
       // Most commonly: no backend (opened file directly / assets-only host).
-      this._emit("offline", { reason: "socket-error" });
+      if (!this._manualClose) this._emit("offline", { reason: "socket-error" });
     });
   }
 
@@ -122,10 +123,12 @@ export class Network {
   }
 
   disconnect() {
+    this._manualClose = true;
     try {
       this.ws?.close();
     } catch {}
     this.ws = null;
     this.connected = false;
+    this.id = null;
   }
 }

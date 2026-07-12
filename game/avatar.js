@@ -153,6 +153,9 @@ export class Avatar {
     this._equipped = new Map(); // slot -> {id, object}
 
     this.material = skinMat(color);
+    // Secondary materials derived from the base colour (muzzle, ears, chest).
+    // Registered with their tint factor so setColor() keeps them in sync.
+    this._tinted = [];
 
     // Head
     this.head = new THREE.Group();
@@ -161,11 +164,10 @@ export class Avatar {
     this.head.add(skull);
     // brow ridge for a "gorilla" read
     const brow = new THREE.Mesh(
-      new THREE.BoxGeometry(0.2, 0.03, 0.05),
-      skinMat(0x000000)
+      new THREE.BoxGeometry(0.19, 0.035, 0.05),
+      this._tintMat(0.55)
     );
-    brow.material = new THREE.MeshStandardMaterial({ color: 0x2a1a10, roughness: 0.8 });
-    brow.position.set(0, 0.02, 0.12);
+    brow.position.set(0, 0.035, 0.115);
     this.head.add(brow);
     // eyes
     const eyeWhite = new THREE.MeshStandardMaterial({ color: 0xf5f5f5, roughness: 0.4 });
@@ -179,14 +181,34 @@ export class Avatar {
       p.position.set(s * 0.05, 0.0, 0.15);
       this.head.add(p);
     }
-    // muzzle
+    // muzzle + nostrils
     const muzzle = new THREE.Mesh(
       new THREE.SphereGeometry(0.08, 16, 14),
-      skinMat(shade(color, 0.82))
+      this._tintMat(0.82)
     );
-    muzzle.scale.set(1, 0.7, 0.8);
-    muzzle.position.set(0, -0.05, 0.1);
+    muzzle.scale.set(1, 0.72, 0.8);
+    muzzle.position.set(0, -0.055, 0.1);
     this.head.add(muzzle);
+    const nostrilMat = new THREE.MeshStandardMaterial({ color: 0x1c1108, roughness: 0.9 });
+    for (const s of [-1, 1]) {
+      const n = new THREE.Mesh(new THREE.SphereGeometry(0.009, 8, 8), nostrilMat);
+      n.position.set(s * 0.022, -0.045, 0.172);
+      this.head.add(n);
+    }
+    // round side ears (also gives the earrings a home)
+    for (const s of [-1, 1]) {
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.045, 14, 12), this._tintMat(0.9));
+      ear.scale.set(0.45, 1, 0.85);
+      ear.position.set(s * 0.135, 0.01, -0.01);
+      this.head.add(ear);
+      const inner = new THREE.Mesh(
+        new THREE.SphereGeometry(0.028, 10, 10),
+        this._tintMat(0.7)
+      );
+      inner.scale.set(0.3, 1, 0.8);
+      inner.position.set(s * 0.148, 0.01, -0.01);
+      this.head.add(inner);
+    }
     this.root.add(this.head);
 
     // Torso
@@ -202,6 +224,14 @@ export class Avatar {
     chest.position.set(0, 0.12, 0.02);
     chest.scale.set(1.15, 0.8, 0.9);
     this.body.add(chest);
+    // lighter chest patch, like a silverback's front
+    const patch = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 16, 12),
+      this._tintMat(1.35)
+    );
+    patch.scale.set(0.85, 1.1, 0.45);
+    patch.position.set(0, 0.03, 0.13);
+    this.body.add(patch);
     this.root.add(this.body);
 
     // Hands + arms
@@ -242,6 +272,13 @@ export class Avatar {
     this.castShadows();
   }
 
+  /** Material tinted relative to the base fur colour; tracked for recolours. */
+  _tintMat(factor) {
+    const m = skinMat(shade(this.color, factor));
+    this._tinted.push({ material: m, factor });
+    return m;
+  }
+
   _buildArm() {
     const arm = new THREE.Mesh(
       new THREE.CylinderGeometry(0.05, 0.045, 1, 12),
@@ -265,6 +302,7 @@ export class Avatar {
     this.material.color.setHex(color);
     this.handL.setColor(color);
     this.handR.setColor(color);
+    for (const t of this._tinted) t.material.color.setHex(shade(color, t.factor));
   }
 
   setName(name) {

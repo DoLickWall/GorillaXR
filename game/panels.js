@@ -103,112 +103,150 @@ class WorldPanel {
 
 // --- Computer ---------------------------------------------------------------
 
-const KEY_ROWS = ["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
+const KEY_ROWS = ["1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
 
 export class ComputerPanel extends WorldPanel {
   constructor(ctx) {
     super(0.72, 0.56, 640, 500);
-    this.ctx2 = ctx; // game context (applyName/applyColor/settings/...)
+    this.ctx2 = ctx; // game context (applyName/applyColor/joinRoom/travel/...)
     this.tab = "name";
     this.nameBuffer = ctx.inventory.name;
+    this.roomBuffer = "";
     this.redraw();
   }
 
   redraw() {
     this.clearButtons();
     this.bg("#0b1a10");
-    this.title("STUMP TERMINAL", 34);
-    // tabs
+    this.title("STUMP OS v1.0", 30);
+    // Two rows of three tabs.
     const tabs = [
       ["NAME", "name"],
       ["COLOUR", "color"],
+      ["ROOM", "room"],
+      ["MAP", "map"],
+      ["MODE", "mode"],
       ["SETTINGS", "settings"],
     ];
-    const tw = 190;
+    const tw = 194,
+      th = 34;
     tabs.forEach((t, i) => {
-      const x = 20 + i * (tw + 8);
+      const x = 20 + (i % 3) * (tw + 9);
+      const y = 52 + Math.floor(i / 3) * (th + 8);
       this.button(
         t[0],
         x,
-        58,
+        y,
         tw,
-        40,
+        th,
         () => {
           this.tab = t[1];
           this.redraw();
         },
-        { fill: this.tab === t[1] ? "#2f6a3c" : "#16301f", r: 8, font: "bold 20px Segoe UI" }
+        {
+          fill: this.tab === t[1] ? "#2f6a3c" : "#16301f",
+          r: 8,
+          font: "bold 17px Segoe UI",
+        }
       );
     });
 
-    if (this.tab === "name") this._drawName();
+    if (this.tab === "name") this._drawTyping("Your name", this.nameBuffer, "SAVE");
+    else if (this.tab === "room") this._drawTyping("Room code", this.roomBuffer, "JOIN");
     else if (this.tab === "color") this._drawColor();
+    else if (this.tab === "map") this._drawMap();
+    else if (this.tab === "mode") this._drawMode();
     else this._drawSettings();
     this.commit();
   }
 
-  _drawName() {
+  _drawTyping(label, value, action) {
     const c = this.ctx;
-    // name display
-    this.roundRect(30, 112, 580, 52, 10);
+    c.fillStyle = "#9fc4a4";
+    c.font = "15px Segoe UI";
+    c.textAlign = "left";
+    c.textBaseline = "middle";
+    c.fillText(
+      this.tab === "room"
+        ? label + "  (currently: " + this.ctx2.currentRoom() + ")"
+        : label,
+      34,
+      148
+    );
+    // typed value display
+    this.roundRect(30, 160, 580, 44, 10);
     c.fillStyle = "#06120a";
     c.fill();
     c.strokeStyle = "#3f7a4f";
     c.lineWidth = 2;
     c.stroke();
     c.fillStyle = "#eaf5ea";
-    c.font = "bold 30px Segoe UI, Arial";
-    c.textAlign = "left";
-    c.textBaseline = "middle";
-    c.fillText(this.nameBuffer || "", 46, 140);
-    // keyboard
-    const keyW = 52,
-      keyH = 46,
+    c.font = "bold 26px Segoe UI, Arial";
+    c.fillText((value || "") + "_", 46, 183);
+    // keyboard (digits + letters)
+    const keyW = 54,
+      keyH = 40,
       gap = 6;
-    let y = 182;
+    let y = 214;
     for (const row of KEY_ROWS) {
       const rowW = row.length * (keyW + gap) - gap;
       let x = (this.pxW - rowW) / 2;
       for (const ch of row) {
         this.button(ch, x, y, keyW, keyH, () => this._type(ch), {
           r: 8,
-          font: "bold 22px Segoe UI",
+          font: "bold 20px Segoe UI",
         });
         x += keyW + gap;
       }
       y += keyH + gap;
     }
-    // bottom row: space / back / save
-    this.button("SPACE", 120, y, 200, keyH, () => this._type(" "), { r: 8 });
-    this.button("DEL", 328, y, 90, keyH, () => this._type("\b"), { r: 8, fill: "#5a2626" });
-    this.button("SAVE", 426, y, 130, keyH, () => this._save(), {
+    // bottom row: space / del / action
+    this.button("SPACE", 110, y, 190, keyH, () => this._type(" "), { r: 8 });
+    this.button("DEL", 310, y, 90, keyH, () => this._type("\b"), {
+      r: 8,
+      fill: "#5a2626",
+    });
+    this.button(action, 410, y, 130, keyH, () => this._commitTyping(), {
       r: 8,
       fill: "#2f6a3c",
     });
   }
 
   _type(ch) {
-    if (ch === "\b") this.nameBuffer = this.nameBuffer.slice(0, -1);
-    else if (this.nameBuffer.length < 16) this.nameBuffer += ch;
+    const isRoom = this.tab === "room";
+    const cur = isRoom ? this.roomBuffer : this.nameBuffer;
+    let next = cur;
+    if (ch === "\b") next = cur.slice(0, -1);
+    else if (cur.length < (isRoom ? 20 : 16)) next = cur + ch;
+    if (isRoom) this.roomBuffer = next;
+    else this.nameBuffer = next;
     this.redraw();
   }
 
-  _save() {
-    const name = this.nameBuffer.trim() || "Gorilla";
-    this.ctx2.applyName(name);
-    this.ctx2.toast("Name saved: " + name);
+  _commitTyping() {
+    if (this.tab === "room") {
+      const code = this.roomBuffer.trim().toLowerCase().replace(/\s+/g, "-");
+      if (!code) return;
+      this.ctx2.joinRoom(code);
+      this.roomBuffer = "";
+    } else {
+      const name = this.nameBuffer.trim() || "Gorilla";
+      this.ctx2.applyName(name);
+      this.ctx2.toast("Name saved: " + name);
+    }
     this.redraw();
   }
 
   _drawColor() {
     const c = this.ctx;
     c.fillStyle = "#9fc4a4";
-    c.font = "18px Segoe UI";
+    c.font = "16px Segoe UI";
     c.textAlign = "center";
-    c.fillText("Pick your fur colour", this.pxW / 2, 122);
+    c.textBaseline = "middle";
+    c.fillText("Pick your fur colour — applies instantly", this.pxW / 2, 152);
     const cols = 7;
-    const sw = 70,
-      sh = 70,
+    const sw = 72,
+      sh = 72,
       gap = 12;
     const totalW = cols * (sw + gap) - gap;
     let x0 = (this.pxW - totalW) / 2;
@@ -216,7 +254,7 @@ export class ComputerPanel extends WorldPanel {
       const col = i % cols;
       const row = Math.floor(i / cols);
       const x = x0 + col * (sw + gap);
-      const y = 150 + row * (sh + gap);
+      const y = 176 + row * (sh + gap);
       this.roundRect(x, y, sw, sh, 12);
       c.fillStyle = "#" + hex.toString(16).padStart(6, "0");
       c.fill();
@@ -229,9 +267,73 @@ export class ComputerPanel extends WorldPanel {
         this.redraw();
       });
     });
+  }
+
+  _drawMap() {
+    const c = this.ctx;
     c.fillStyle = "#9fc4a4";
     c.font = "16px Segoe UI";
-    c.fillText("Changes apply instantly", this.pxW / 2, 470);
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText("Travel to another map", this.pxW / 2, 152);
+    const maps = [
+      ["FOREST — spawn stump & gazebo", "forest"],
+      ["CAVES — crystals in the dark", "caves"],
+      ["CITY — shops & rooftops", "city"],
+    ];
+    let y = 178;
+    for (const [label, id] of maps) {
+      const here = this.ctx2.currentMap() === id;
+      this.button(
+        here ? label + "  ✓" : label,
+        60,
+        y,
+        520,
+        66,
+        () => {
+          this.ctx2.travel(id);
+          this.redraw();
+        },
+        { r: 12, fill: here ? "#2f6a3c" : "#16301f", font: "bold 21px Segoe UI" }
+      );
+      y += 80;
+    }
+    c.fillStyle = "#9fc4a4";
+    c.font = "14px Segoe UI";
+    c.fillText("Friends in your room see which map you're on", this.pxW / 2, y + 14);
+  }
+
+  _drawMode() {
+    const c = this.ctx;
+    c.fillStyle = "#9fc4a4";
+    c.font = "16px Segoe UI";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText("Game mode (applies to the whole room)", this.pxW / 2, 152);
+    const modes = [
+      ["CASUAL — hang out, no tag", "casual"],
+      ["INFECTION — one is IT, touch spreads it", "infection"],
+    ];
+    let y = 184;
+    for (const [label, id] of modes) {
+      const active = this.ctx2.currentMode() === id;
+      this.button(
+        active ? label + "  ✓" : label,
+        60,
+        y,
+        520,
+        76,
+        () => {
+          this.ctx2.setMode(id);
+          this.redraw();
+        },
+        { r: 12, fill: active ? "#2f6a3c" : "#16301f", font: "bold 20px Segoe UI" }
+      );
+      y += 92;
+    }
+    c.fillStyle = "#9fc4a4";
+    c.font = "14px Segoe UI";
+    c.fillText("Infection needs at least 2 players in the room", this.pxW / 2, y + 14);
   }
 
   _drawSettings() {
@@ -258,12 +360,12 @@ export class ComputerPanel extends WorldPanel {
         this.redraw();
       }],
     ];
-    let y = 120;
+    let y = 150;
     for (const [label, fn] of rows) {
-      this.button(label, 40, y, 560, 54, fn, { r: 10, font: "bold 22px Segoe UI" });
-      y += 66;
+      this.button(label, 40, y, 560, 48, fn, { r: 10, font: "bold 20px Segoe UI" });
+      y += 58;
     }
-    this.button("RESPAWN AT STUMP", 40, y + 6, 560, 54, () => this.ctx2.respawn(), {
+    this.button("RESPAWN", 40, y + 4, 560, 48, () => this.ctx2.respawn(), {
       r: 10,
       fill: "#2f6a3c",
     });
